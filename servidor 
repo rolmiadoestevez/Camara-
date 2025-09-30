@@ -1,0 +1,27 @@
+from camera_worker import CameraWorker
+import time
+
+def main():
+    cam1 = CameraWorker(
+        name="Cam1",
+        rtsp_url="rtsp://192.168.100.130:554/vs1?tcp",
+        model_path=r"C:\Users\arielpc\Desktop\servidor\models\yolo11s-pose.onnx",
+        camera_ip="192.168.100.130:8080",
+        tracker_path=r"C:\Users\arielpc\Desktop\servidor\cfg\bytetrack.yaml"
+    )
+
+    # Para agregar más cámaras solo duplicas:
+    # cam2 = CameraWorker(name="Cam2", rtsp_url="...", model_path="...", camera_ip="...", tracker_path="...")
+
+    cam1.start()
+    # cam2.start()
+
+    while True:
+        try:
+            time.sleep(1)
+        except KeyboardInterrupt:
+            print("Servidor central detenido.")
+            break
+
+if __name__ == "__main__":
+    main()
