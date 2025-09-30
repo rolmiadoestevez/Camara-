@@ -1,0 +1,793 @@
+self.findChild(QWidget).setStyleSheet(header_style)
+        self.video_container.setStyleSheet(video_style)
+        
+    def apply_hover_style(self):
+        # Estilo cuando el mouse está sobre la cámara
+        hover_style = """
+            CameraWidget {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #e6f2ff, stop:1 #d4e7ff);
+                border: 3px solid #4a90e2;
+                border-radius: 12px;
+            }
+            QLabel {
+                background: transparent;
+                color: #1c4a80;
+            }
+        """
+        
+        header_hover_style = """
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #c8e0ff, stop:1 #b8d8ff);
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
+                border-bottom: 2px solid #4a90e2;
+            }
+        """
+        
+        self.setStyleSheet(hover_style)
+        self.findChild(QWidget).setStyleSheet(header_hover_style)
+        
+    def apply_recording_style(self):
+        # Estilo cuando está grabando
+        recording_style = """
+            CameraWidget {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #fff0f0, stop:1 #ffe6e6);
+                border: 2px solid #ff6b6b;
+                border-radius: 12px;
+            }
+            QLabel {
+                background: transparent;
+                color: #cc3333;
+            }
+        """
+        
+        self.setStyleSheet(recording_style)
+        
+    def update_display(self):
+        # Actualizar indicador de estado
+        if self.is_online:
+            self.status_indicator.setStyleSheet("""
+                QLabel {
+                    color: #4CAF50;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+            """)
+            status_text = f"{self.name}\n{self.location}\n● EN LÍNEA"
+        else:
+            self.status_indicator.setStyleSheet("""
+                QLabel {
+                    color: #ff6b6b;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+            """)
+            status_text = f"{self.name}\n{self.location}\n● OFFLINE"
+            
+        self.video_widget.setText(status_text)
+        
+        # Actualizar indicador de grabación
+        self.recording_indicator.setVisible(self.is_recording)
+        
+        # Aplicar estilo de grabación si es necesario
+        if self.is_recording:
+            self.apply_recording_style()
+        else:
+            self.apply_modern_style()
+    
+    def on_enter(self, event):
+        # Efecto hover cuando el mouse entra en la cámara completa
+        self.apply_hover_style()
+        
+    def on_leave(self, event):
+        # Volver al estilo normal cuando el mouse sale de la cámara
+        if self.is_recording:
+            self.apply_recording_style()
+        else:
+            self.apply_modern_style()
+
+    def set_recording(self, recording):
+        self.is_recording = recording
+        self.update_display()
+    
+    def set_online(self, online):
+        self.is_online = online
+        self.update_display()
+
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configuración del Sistema")
+        self.setFixedSize(500, 400)
+        self.setup_ui()
+        self.apply_modern_style()
+        
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        # Título
+        title = QLabel("Configuración del Sistema")
+        title.setFont(QFont("Segoe UI", 14, QFont.Bold))
+        title.setAlignment(Qt.AlignCenter)
+        
+        # Tabs de configuración
+        tabs = QTabWidget()
+        tabs.setFont(QFont("Segoe UI", 9))
+        
+        # Tab de Visualización
+        display_tab = QWidget()
+        display_layout = QVBoxLayout(display_tab)
+        display_layout.setSpacing(15)
+        
+        # Configuración de iconos
+        icons_group = QGroupBox("Configuración de Iconos")
+        icons_layout = QVBoxLayout(icons_group)
+        icons_layout.setSpacing(10)
+        
+        self.show_icons_always = QCheckBox("Mostrar iconos siempre")
+        self.show_icons_always.setChecked(AppConfig.SHOW_ICONS_ALWAYS)
+        self.show_icons_always.stateChanged.connect(self.on_icons_setting_changed)
+        
+        icons_info = QLabel("Cuando está desactivado, los iconos solo se muestran\ncuando el mouse está sobre la ventana de video.")
+        icons_info.setFont(QFont("Segoe UI", 8))
+        icons_info.setStyleSheet("color: #666;")
+        
+        icons_layout.addWidget(self.show_icons_always)
+        icons_layout.addWidget(icons_info)
+        
+        # Configuración de visualización
+        display_group = QGroupBox("Configuración de Visualización")
+        display_layout_group = QVBoxLayout(display_group)
+        display_layout_group.setSpacing(10)
+        
+        quality_layout = QHBoxLayout()
+        quality_layout.addWidget(QLabel("Calidad de video:"))
+        self.quality_combo = QComboBox()
+        self.quality_combo.addItems(["Baja", "Media", "Alta", "Máxima"])
+        self.quality_combo.setCurrentText("Alta")
+        quality_layout.addWidget(self.quality_combo)
+        quality_layout.addStretch()
+        
+        layout_layout = QHBoxLayout()
+        layout_layout.addWidget(QLabel("Disposición:"))
+        self.layout_combo = QComboBox()
+        self.layout_combo.addItems(["2x3", "3x2", "1x6", "6x1"])
+        self.layout_combo.setCurrentText("2x3")
+        layout_layout.addWidget(self.layout_combo)
+        layout_layout.addStretch()
+        
+        display_layout_group.addLayout(quality_layout)
+        display_layout_group.addLayout(layout_layout)
+        
+        display_layout.addWidget(icons_group)
+        display_layout.addWidget(display_group)
+        display_layout.addStretch()
+        
+        # Tab de Grabación
+        recording_tab = QWidget()
+        recording_layout = QVBoxLayout(recording_tab)
+        recording_layout.setSpacing(15)
+        
+        # Configuración de grabación
+        rec_group = QGroupBox("Configuración de Grabación")
+        rec_layout = QVBoxLayout(rec_group)
+        rec_layout.setSpacing(10)
+        
+        self.continuous_rec = QCheckBox("Grabación continua")
+        self.continuous_rec.setChecked(True)
+        
+        self.motion_detection = QCheckBox("Detección de movimiento")
+        self.motion_detection.setChecked(False)
+        
+        retention_layout = QHBoxLayout()
+        retention_layout.addWidget(QLabel("Retención (días):"))
+        self.retention_days = QSpinBox()
+        self.retention_days.setRange(1, 365)
+        self.retention_days.setValue(30)
+        retention_layout.addWidget(self.retention_days)
+        retention_layout.addStretch()
+        
+        rec_layout.addWidget(self.continuous_rec)
+        rec_layout.addWidget(self.motion_detection)
+        rec_layout.addLayout(retention_layout)
+        
+        recording_layout.addWidget(rec_group)
+        recording_layout.addStretch()
+        
+        tabs.addTab(display_tab, "Visualización")
+        tabs.addTab(recording_tab, "Grabación")
+        
+        # Botones
+        button_layout = QHBoxLayout()
+        save_btn = QPushButton("Guardar Configuración")
+        cancel_btn = QPushButton("Cancelar")
+        
+        save_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+        
+        button_layout.addStretch()
+        button_layout.addWidget(save_btn)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addWidget(title)
+        layout.addWidget(tabs)
+        layout.addLayout(button_layout)
+    
+    def on_icons_setting_changed(self, state):
+        AppConfig.SHOW_ICONS_ALWAYS = (state == Qt.Checked)
+    
+    def apply_modern_style(self):
+        self.setStyleSheet("""
+            QDialog {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #f0f8ff, stop:1 #e6f3ff);
+                border: 2px solid #b8d4f0;
+                border-radius: 12px;
+            }
+            QLabel {
+                color: #2c5aa0;
+                font-family: Segoe UI;
+            }
+            QGroupBox {
+                color: #2c5aa0;
+                font-weight: bold;
+                font-family: Segoe UI;
+                border: 1px solid #a8c8f0;
+                border-radius: 8px;
+                margin-top: 1ex;
+                padding-top: 10px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #e6f2ff, stop:1 #d9ebff);
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+                color: #2c5aa0;
+            }
+            QCheckBox, QLabel {
+                color: #2c5aa0;
+                font-family: Segoe UI;
+            }
+            QCheckBox::indicator {
+                width: 15px;
+                height: 15px;
+                border-radius: 3px;
+                border: 2px solid #a8c8f0;
+                background-color: #e6f2ff;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #4a90e2;
+                border: 2px solid #4a90e2;
+            }
+            QTabWidget::pane {
+                border: 1px solid #a8c8f0;
+                background-color: #e6f2ff;
+                border-radius: 8px;
+            }
+            QTabBar::tab {
+                background-color: #d8e8ff;
+                color: #2c5aa0;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                font-family: Segoe UI;
+            }
+            QTabBar::tab:selected {
+                background-color: #4a90e2;
+                color: white;
+            }
+            QPushButton {
+                background-color: #4a90e2;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-family: Segoe UI;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3a80d2;
+            }
+            QPushButton:pressed {
+                background-color: #2a70c2;
+            }
+            QSpinBox, QComboBox {
+                background-color: #e6f2ff;
+                color: #2c5aa0;
+                border: 1px solid #a8c8f0;
+                border-radius: 4px;
+                padding: 4px;
+                font-family: Segoe UI;
+            }
+        """)
+
+class SecuritySystemGUI(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.cameras = []
+        self.recording_all = False
+        self.setup_cameras()
+        self.init_ui()
+        
+    def setup_cameras(self):
+        cameras_data = [
+            ("Entrada Principal", "Exterior"),
+            ("Recepción", "Interior"),
+            ("Estacionamiento", "Exterior"),
+            ("Almacén", "Interior"),
+            ("Oficinas", "Interior"),
+            ("Salida Emergencia", "Exterior")
+        ]
+        
+        for i, (name, location) in enumerate(cameras_data):
+            camera = CameraWidget(i + 1, name, location)
+            self.cameras.append(camera)
+    
+    def init_ui(self):
+        self.setWindowTitle("Sistema de Seguridad - Panel de Control")
+        self.setGeometry(100, 100, 1600, 1000)
+        
+        # Aplicar estilo moderno
+        self.apply_modern_style()
+        
+        # Widget central
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # Layout principal
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
+        
+        # Panel lateral
+        sidebar = self.create_sidebar()
+        main_layout.addWidget(sidebar)
+        
+        # Área principal de cámaras (ocupa todo el espacio restante)
+        camera_area = self.create_camera_area()
+        main_layout.addWidget(camera_area, 1)
+        
+        # Barra de estado
+        self.setup_statusbar()
+        
+        # Barra de herramientas
+        self.setup_toolbar()
+    
+    def apply_modern_style(self):
+        self.setStyleSheet("""
+            QMainWindow {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #f5fbff, stop:1 #e8f4ff);
+                color: #2c5aa0;
+                font-family: Segoe UI;
+            }
+            QWidget {
+                background: transparent;
+            }
+        """)
+    
+    def create_sidebar(self):
+        sidebar = QWidget()
+        sidebar.setFixedWidth(280)
+        sidebar.setStyleSheet("""
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #e6f2ff, stop:1 #d9ebff);
+                border: 2px solid #b8d4f0;
+                border-radius: 12px;
+            }
+        """)
+        
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(15)
+        
+        # Título
+        title = QLabel("SISTEMA DE\nSEGURIDAD")
+        title.setFont(QFont("Segoe UI", 18, QFont.Bold))
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("""
+            QLabel {
+                color: #2c5aa0;
+                padding: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #d8e8ff, stop:1 #c8e0ff);
+                border-radius: 10px;
+                border: 2px solid #a8c8f0;
+            }
+        """)
+        
+        # Lista de cámaras
+        cameras_label = QLabel("Cámaras Conectadas:")
+        cameras_label.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        cameras_label.setStyleSheet("color: #2c5aa0;")
+        
+        cameras_list = QListWidget()
+        cameras_list.setFont(QFont("Segoe UI", 10))
+        cameras_list.setStyleSheet("""
+            QListWidget {
+                background-color: #e6f2ff;
+                border: 2px solid #a8c8f0;
+                border-radius: 8px;
+                padding: 5px;
+                color: #2c5aa0;
+            }
+            QListWidget::item {
+                padding: 10px;
+                border-bottom: 1px solid #b8d4f0;
+                border-radius: 6px;
+                margin: 2px;
+            }
+            QListWidget::item:selected {
+                background-color: #4a90e2;
+                color: white;
+            }
+            QListWidget::item:hover {
+                background-color: #d8e8ff;
+            }
+        """)
+        
+        for camera in self.cameras:
+            item = QListWidgetItem(f"● {camera.name} - {camera.location}")
+            cameras_list.addItem(item)
+        
+        # Controles del sistema
+        controls_group = QGroupBox("Controles del Sistema")
+        controls_group.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        controls_group.setStyleSheet("""
+            QGroupBox {
+                color: #2c5aa0;
+                border: 2px solid #a8c8f0;
+                border-radius: 10px;
+                margin-top: 1ex;
+                padding-top: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #e6f2ff, stop:1 #d9ebff);
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 8px 0 8px;
+                color: #2c5aa0;
+            }
+        """)
+        
+        controls_layout = QVBoxLayout(controls_group)
+        controls_layout.setSpacing(10)
+        
+        # Botones de control con estilo moderno
+        self.record_btn = QPushButton("⏺️ INICIAR GRABACIÓN")
+        self.snapshot_btn = QPushButton("📸 CAPTURAR IMAGEN")
+        self.playback_btn = QPushButton("⏪ REPRODUCCIÓN")
+        self.settings_btn = QPushButton("⚙️ CONFIGURACIÓN")
+        self.alerts_btn = QPushButton("🔔 ALERTAS")
+        self.export_btn = QPushButton("📁 EXPORTAR")
+        self.emergency_btn = QPushButton("🚨 EMERGENCIA")
+        
+        # Aplicar estilo a los botones
+        buttons = [self.record_btn, self.snapshot_btn, self.playback_btn,
+                  self.settings_btn, self.alerts_btn, self.export_btn, self.emergency_btn]
+        
+        for btn in buttons:
+            btn.setMinimumHeight(45)
+            btn.setFont(QFont("Segoe UI", 10))
+            if btn == self.record_btn:
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #4a90e2;
+                        color: white;
+                        font-weight: bold;
+                        border: none;
+                        border-radius: 8px;
+                    }
+                    QPushButton:hover {
+                        background-color: #3a80d2;
+                    }
+                    QPushButton:pressed {
+                        background-color: #2a70c2;
+                    }
+                """)
+            elif btn == self.emergency_btn:
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #ff6b6b;
+                        color: white;
+                        font-weight: bold;
+                        border: none;
+                        border-radius: 8px;
+                    }
+                    QPushButton:hover {
+                        background-color: #ff5a5a;
+                    }
+                    QPushButton:pressed {
+                        background-color: #ff4a4a;
+                    }
+                """)
+            else:
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #a8c8f0;
+                        color: #2c5aa0;
+                        font-weight: bold;
+                        border: none;
+                        border-radius: 8px;
+                    }
+                    QPushButton:hover {
+                        background-color: #98b8e0;
+                    }
+                    QPushButton:pressed {
+                        background-color: #88a8d0;
+                    }
+                """)
+        
+        # Conectar señales
+        self.record_btn.clicked.connect(self.toggle_recording)
+        self.settings_btn.clicked.connect(self.show_settings)
+        self.emergency_btn.clicked.connect(self.emergency_protocol)
+        self.snapshot_btn.clicked.connect(self.capture_snapshot)
+        self.alerts_btn.clicked.connect(self.show_alerts)
+        
+        # Agregar botones al layout
+        controls_layout.addWidget(self.record_btn)
+        controls_layout.addWidget(self.snapshot_btn)
+        controls_layout.addWidget(self.playback_btn)
+        controls_layout.addWidget(self.settings_btn)
+        controls_layout.addWidget(self.alerts_btn)
+        controls_layout.addWidget(self.export_btn)
+        controls_layout.addWidget(self.emergency_btn)
+        
+        # Agregar al layout principal
+        layout.addWidget(title)
+        layout.addWidget(cameras_label)
+        layout.addWidget(cameras_list)
+        layout.addWidget(controls_group)
+        layout.addStretch()
+        
+        return sidebar
+    
+    def create_camera_area(self):
+        # Crear un área de scroll para las cámaras
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+            }
+        """)
+        
+        content = QWidget()
+        layout = QGridLayout(content)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(20)
+        layout.setAlignment(Qt.AlignCenter)
+        
+        # Configurar el grid para que las cámaras se expandan
+        for i in range(2):
+            layout.setRowStretch(i, 1)
+        for j in range(3):
+            layout.setColumnStretch(j, 1)
+        
+        # Agregar cámaras en grid 2x3
+        for i, camera in enumerate(self.cameras):
+            row = i // 3
+            col = i % 3
+            layout.addWidget(camera, row, col)
+            camera.setMinimumSize(400, 300)
+        
+        scroll_area.setWidget(content)
+        return scroll_area
+    
+    def setup_toolbar(self):
+        toolbar = QToolBar()
+        toolbar.setIconSize(QSize(28, 28))
+        toolbar.setMovable(False)
+        toolbar.setStyleSheet("""
+            QToolBar {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #d8e8ff, stop:1 #c8e0ff);
+                border: none;
+                border-bottom: 2px solid #b8d4f0;
+                spacing: 8px;
+                padding: 8px;
+            }
+            QToolButton {
+                color: #2c5aa0;
+                background-color: #e6f2ff;
+                border: 2px solid #a8c8f0;
+                border-radius: 8px;
+                padding: 10px 15px;
+                font-family: Segoe UI;
+                font-size: 11px;
+            }
+            QToolButton:hover {
+                background-color: #d8e8ff;
+                border: 2px solid #4a90e2;
+            }
+            QToolButton:pressed {
+                background-color: #c8e0ff;
+            }
+        """)
+        
+        self.addToolBar(toolbar)
+        
+        # Botones de la toolbar
+        dashboard_action = QAction("📊 Dashboard", self)
+        dashboard_action.triggered.connect(self.show_dashboard)
+        toolbar.addAction(dashboard_action)
+        
+        reports_action = QAction("📈 Reportes", self)
+        reports_action.triggered.connect(self.show_reports)
+        toolbar.addAction(reports_action)
+        
+        toolbar.addSeparator()
+        
+        zoom_action = QAction("🔍 Zoom", self)
+        zoom_action.triggered.connect(self.zoom_view)
+        toolbar.addAction(zoom_action)
+        
+        layout_action = QAction("🔄 Cambiar Vista", self)
+        layout_action.triggered.connect(self.change_layout)
+        toolbar.addAction(layout_action)
+        
+        refresh_action = QAction("🔄 Actualizar", self)
+        refresh_action.triggered.connect(self.refresh_view)
+        toolbar.addAction(refresh_action)
+    
+    def setup_statusbar(self):
+        statusbar = QStatusBar()
+        statusbar.setStyleSheet("""
+            QStatusBar {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #d8e8ff, stop:1 #c8e0ff);
+                color: #2c5aa0;
+                border: none;
+                border-top: 2px solid #b8d4f0;
+                font-family: Segoe UI;
+                font-size: 10px;
+            }
+        """)
+        
+        self.setStatusBar(statusbar)
+        
+        # Información del sistema
+        self.system_status = QLabel("● Sistema: Online")
+        self.system_status.setStyleSheet("color: #4CAF50; font-family: Segoe UI;")
+        
+        self.recording_status = QLabel("⏺️ Grabación: Inactiva")
+        self.recording_status.setStyleSheet("color: #2c5aa0; font-family: Segoe UI;")
+        
+        self.storage_status = QLabel("💾 Almacenamiento: 65%")
+        self.storage_status.setStyleSheet("color: #2c5aa0; font-family: Segoe UI;")
+        
+        self.time_label = QLabel()
+        self.time_label.setStyleSheet("color: #2c5aa0; font-family: Segoe UI; font-weight: bold;")
+        
+        statusbar.addWidget(self.system_status)
+        statusbar.addPermanentWidget(self.recording_status)
+        statusbar.addPermanentWidget(self.storage_status)
+        statusbar.addPermanentWidget(self.time_label)
+        
+        # Actualizar hora
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_time)
+        self.timer.start(1000)
+        self.update_time()
+    
+    def update_time(self):
+        current_time = datetime.now().strftime("%H:%M:%S - %d/%m/%Y")
+        self.time_label.setText(current_time)
+    
+    def toggle_recording(self):
+        self.recording_all = not self.recording_all
+        
+        for camera in self.cameras:
+            camera.set_recording(self.recording_all)
+        
+        if self.recording_all:
+            self.record_btn.setText("⏹️ DETENER GRABACIÓN")
+            self.recording_status.setText("⏺️ Grabación: Activa")
+            self.record_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ff6b6b;
+                    color: white;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 8px;
+                }
+                QPushButton:hover {
+                    background-color: #ff5a5a;
+                }
+                QPushButton:pressed {
+                    background-color: #ff4a4a;
+                }
+            """)
+            QMessageBox.information(self, "Grabación", "Grabación iniciada en todas las cámaras")
+        else:
+            self.record_btn.setText("⏺️ INICIAR GRABACIÓN")
+            self.recording_status.setText("⏺️ Grabación: Inactiva")
+            self.record_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #4a90e2;
+                    color: white;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 8px;
+                }
+                QPushButton:hover {
+                    background-color: #3a80d2;
+                }
+                QPushButton:pressed {
+                    background-color: #2a70c2;
+                }
+            """)
+            QMessageBox.information(self, "Grabación", "Grabación detenida")
+    
+    def capture_snapshot(self):
+        QMessageBox.information(self, "Captura", "Imagen capturada correctamente")
+    
+    def show_alerts(self):
+        QMessageBox.information(self, "Alertas", "No hay alertas activas en este momento")
+    
+    def show_settings(self):
+        dialog = SettingsDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            # Actualizar todas las cámaras con la nueva configuración
+            for camera in self.cameras:
+                camera.update_icons_visibility()
+            QMessageBox.information(self, "Configuración", "Configuración guardada correctamente")
+    
+    def emergency_protocol(self):
+        reply = QMessageBox.question(
+            self, 
+            "Protocolo de Emergencia",
+            "¿Está seguro de activar el protocolo de emergencia?\n\nSe notificará a las autoridades correspondientes.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            QMessageBox.warning(
+                self, 
+                "Emergencia Activada",
+                "Protocolo de emergencia activado. Autoridades notificadas."
+            )
+    
+    def show_dashboard(self):
+        QMessageBox.information(self, "Dashboard", "Abriendo panel de control avanzado...")
+    
+    def show_reports(self):
+        QMessageBox.information(self, "Reportes", "Generando reportes del sistema...")
+    
+    def zoom_view(self):
+        QMessageBox.information(self, "Zoom", "Modo zoom activado")
+    
+    def change_layout(self):
+        QMessageBox.information(self, "Cambiar Vista", "Cambiando disposición de cámaras...")
+    
+    def refresh_view(self):
+        QMessageBox.information(self, "Actualizar", "Vista actualizada")
+
+def main():
+    app = QApplication(sys.argv)
+    
+    # Establecer estilo de aplicación
+    app.setStyle('Fusion')
+    
+    # Crear y mostrar ventana principal
+    window = SecuritySystemGUI()
+    window.show()
+    
+    sys.exit(app.exec_())
+
+if __name__ == '__main__':
+    main()
