@@ -1,0 +1,246 @@
+import threading
+import queue
+import time
+import cv2
+import av
+import os
+import numpy as np
+from collections import deque
+from datetime import datetime
+import requests
+from ultralytics import YOLO
+import winsound
+
+class CameraWorker:
+    def __init__(self, name, rtsp_url, model_path, camera_ip, tracker_path, video_dir="recordings"):
+        self.name = name
+        self.rtsp_url = rtsp_url
+        self.camera_ip = camera_ip
+        self.model = YOLO(model_path)
+        self.tracker_path = tracker_path
+        self.video_dir = video_dir
+        os.makedirs(video_dir, exist_ok=True)
+
+        # Colas y buffers
+        self.frame_queue = queue.Queue(maxsize=2)
+        self.display_queue = queue.Queue(maxsize=1)
+        self.record_queue = queue.Queue()
+        self.record_buffer = deque(maxlen=240)
+
+        # Flags
+        self.rotate_angle = 0
+        self.invert_image = False
+        self.ptz_moving = False
+        self.ptz_move_start = 0
+        self.PTZ_BLOCK_SECONDS = 3
+        self.last_ignore_time = time.time()
+        self.active_alerts = set()
+        self.person_counter_dict = {}
+        self.last_beep_time = 0
+        self.is_recording = False
+        self.recording_lock = threading.Lock()
+        self.last_frame = None
+
+        # Configuración de alarmas
+        self.ALERT_SOUND_ENABLED = True
+        self.ALERT_FREQUENCY = 1000
+        self.BEEP_DURATION = 300
+        self.BEEP_INTERVAL = 1.0
+        self.REQUIRED_FRAMES = 1
+        self.IGNORE_SECONDS = 5
+        self.CONF_THRESHOLD = 0.5
+
+    # -------------------- PTZ --------------------
+    def ptz_command(self, cmd):
+        url = f"http://{self.camera_ip}/cgi-bin/webui?command={cmd}"
+        try:
+            response = requests.get(url, timeout=1)
+            if response.status_code == 200:
+                print(f"[{self.name} PTZ] Comando enviado: {cmd}")
+                self.ptz_moving = True
+                self.ptz_move_start = time.time()
+                with self.frame_queue.mutex:
+                    self.frame_queue.queue.clear()
+            else:
+                print(f"[{self.name} PTZ] Error: {response.status_code}")
+        except Exception as e:
+            print(f"[{self.name} PTZ] Excepción: {e}")
+
+    # -------------------- HILOS --------------------
+    def rtsp_capture(self):
+        while True:
+            try:
+                container = av.open(self.rtsp_url)
+                for frame in container.decode(video=0):
+                    img = frame.to_ndarray(format='bgr24')
+                    if not self.frame_queue.full():
+                        self.frame_queue.put(img)
+            except Exception as e:
+                print(f"[{self.name} Capture] Error RTSP: {e}")
+                time.sleep(2)
+
+    def processing(self):
+        fgbg = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=25, detectShadows=False)
+        while True:
+            if not self.frame_queue.empty():
+                frame = self.frame_queue.get()
+                self.last_frame = frame.copy()
+
+                # -------------------
+                # Rotación y espejo primero
+                # -------------------
+                if self.rotate_angle != 0:
+                    (h, w) = frame.shape[:2]
+                    M = cv2.getRotationMatrix2D((w//2, h//2), self.rotate_angle, 1.0)
+                    frame = cv2.warpAffine(frame, M, (w, h))
+
+                if self.invert_image:
+                    frame = cv2.flip(frame, 1)
+
+                # -------------------
+                # Bloqueo PTZ: evita detección mientras se rota/espeja o mueve
+                # -------------------
+                if self.ptz_moving and time.time() - self.ptz_move_start < self.PTZ_BLOCK_SECONDS:
+                    self.display_queue.put(frame)
+                    continue
+                else:
+                    self.ptz_moving = False
+
+                # -------------------
+                # Movimiento y keypoints
+                # -------------------
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                fgmask = fgbg.apply(gray)
+                fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, np.ones((3,3), np.uint8))
+                contours, _ = cv2.findContours(fgmask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                motion_boxes = [cv2.boundingRect(c) for c in contours if cv2.contourArea(c) > 500]
+
+                if time.time() - self.last_ignore_time < self.IGNORE_SECONDS or not motion_boxes:
+                    self.display_queue.put(frame)
+                    continue
+
+                results_pose = self.model.track(
+                    frame,
+                    persist=True,
+                    conf=self.CONF_THRESHOLD,
+                    iou=0.5,
+                    tracker=self.tracker_path,
+                    verbose=False
+                )
+
+                current_ids = set()
+                for res in results_pose:
+                    if hasattr(res, "keypoints") and res.keypoints is not None:
+                        kpts_array = res.keypoints.data
+                        for idx, kpts in enumerate(kpts_array):
+                            head = kpts[0,2] > 0.5
+                            trunk = any(kpts[i,2] > 0.5 for i in [5,6,11,12])
+                            legs = any(kpts[i,2] > 0.5 for i in [13,14,15,16])
+                            person_id = int(res.boxes[idx].id) if hasattr(res.boxes[idx],"id") and res.boxes[idx].id is not None else idx
+                            current_ids.add(person_id)
+                            x1,y1,x2,y2 = map(int,res.boxes[idx].xyxy[0])
+                            in_motion = any((x1 < mx+mw and x2 > mx and y1 < my+mh and y2 > my) for (mx,my,mw,mh) in motion_boxes)
+
+                            alarm_condition = False
+                            if in_motion:
+                                if (head and trunk) or (trunk and legs) or (person_id in self.active_alerts and (trunk or legs)):
+                                    alarm_condition = True
+
+                            if alarm_condition:
+                                self.person_counter_dict[person_id] = self.person_counter_dict.get(person_id,0)+1
+                                if self.person_counter_dict[person_id] >= self.REQUIRED_FRAMES:
+                                    if person_id not in self.active_alerts:
+                                        self.active_alerts.add(person_id)
+                                        if not self.is_recording:
+                                            self.record_queue.put(True)
+                            else:
+                                self.person_counter_dict[person_id] = self.person_counter_dict.get(person_id,0)
+
+                for pid in list(self.person_counter_dict.keys()):
+                    if pid not in current_ids:
+                        self.person_counter_dict.pop(pid)
+                        self.active_alerts.discard(pid)
+
+                annotated_frame = results_pose[0].plot() if results_pose else frame
+                self.display_queue.put(annotated_frame)
+
+    def display(self):
+        print(f"[{self.name}] Controles PTZ: w/s/a/d/e/z/c r/i ESC para salir")
+        while True:
+            if not self.display_queue.empty():
+                frame = self.display_queue.get()
+                display_frame = cv2.resize(frame, (640,480))
+                cv2.imshow(f"{self.name} Tracking", display_frame)
+                self.last_frame = display_frame.copy()
+                self.record_buffer.append(self.last_frame.copy())
+
+            key = cv2.waitKey(1) & 0xFF
+            if key==27:
+                break
+            elif key==ord("w"): self.ptz_command("ptzu")
+            elif key==ord("s"): self.ptz_command("ptzd")
+            elif key==ord("a"): self.ptz_command("ptzl")
+            elif key==ord("d"): self.ptz_command("ptzr")
+            elif key==ord("e"): self.ptz_command("ptzru")
+            elif key==ord("z"): self.ptz_command("ptzld")
+            elif key==ord("c"): self.ptz_command("ptzrd")
+            elif key==ord("r"):  # rotar imagen
+                self.rotate_angle = (self.rotate_angle + 90) % 360
+                self.ptz_moving = True
+                self.ptz_move_start = time.time()
+            elif key==ord("i"):  # espejo
+                self.invert_image = not self.invert_image
+                self.ptz_moving = True
+                self.ptz_move_start = time.time()
+
+        cv2.destroyAllWindows()
+
+    def alarm_thread(self):
+        while True:
+            if self.active_alerts:
+                current_time = time.time()
+                if current_time - self.last_beep_time > self.BEEP_INTERVAL:
+                    self.last_beep_time = current_time
+                    winsound.Beep(self.ALERT_FREQUENCY, self.BEEP_DURATION)
+            time.sleep(0.01)
+
+    def recorder_thread(self):
+        while True:
+            self.record_queue.get()
+            if self.is_recording:
+                continue
+
+            with self.recording_lock:
+                self.is_recording = True
+                try:
+                    filename = os.path.join(self.video_dir, f"{self.name}_alert_{datetime.now().strftime('%Y%m%d-%H%M%S')}.mp4")
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    if self.last_frame is None:
+                        self.is_recording = False
+                        continue
+
+                    h, w = self.last_frame.shape[:2]
+                    out = cv2.VideoWriter(filename, fourcc, 24, (w,h))
+                    frames_to_record = 720
+                    frames_recorded = 0
+                    while frames_recorded < frames_to_record:
+                        if self.record_buffer:
+                            out.write(self.record_buffer[-1].copy())
+                        else:
+                            out.write(self.last_frame.copy())
+                        frames_recorded += 1
+                        time.sleep(1/24)
+                    out.release()
+                    print(f"[{self.name}] Grabación finalizada: {filename}")
+                except Exception as e:
+                    print(f"[{self.name} Recorder] Error: {e}")
+                finally:
+                    self.is_recording = False
+
+    # -------------------- INICIAR HILOS --------------------
+    def start(self):
+        threading.Thread(target=self.rtsp_capture, daemon=True).start()
+        threading.Thread(target=self.processing, daemon=True).start()
+        threading.Thread(target=self.display, daemon=True).start()
+        threading.Thread(target=self.alarm_thread, daemon=True).start()
+        threading.Thread(target=self.recorder_thread, daemon=True).start()
